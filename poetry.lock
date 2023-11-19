@@ -268,6 +268,17 @@ async = ["asgiref (>=3.2)"]
 dotenv = ["python-dotenv"]
 
 [[package]]
+name = "general-cache"
+version = "0.1.1"
+description = ""
+optional = false
+python-versions = ">=3.10,<4.0"
+files = [
+    {file = "general_cache-0.1.1-py3-none-any.whl", hash = "sha256:241f58443dbad738526ae5379e4fe02fb4e97b890eee0bc0e586b05b4bff1c6f"},
+    {file = "general_cache-0.1.1.tar.gz", hash = "sha256:117aa3cc59ab34107072ddc60029a8ad5ac48090678e64d34588b3c4f6e90e2c"},
+]
+
+[[package]]
 name = "idna"
 version = "3.4"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -584,4 +595,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "03311754157e901d382d09845e590b9d5dd9d1557c8c01d7194ddc210ef1da07"
+content-hash = "74ca745a76fe6bd4b81627b28ea093c564c0a4b1514cfe02e1b9d4e47296f418"

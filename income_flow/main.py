@@ -5,6 +5,7 @@ import dotenv
 import plotly.graph_objects as go
 import requests
 from dash import Dash, Input, Output, State, callback, dcc, html
+from general_cache import cached
 
 dotenv.load_dotenv()
 
@@ -48,6 +49,8 @@ app.layout = html.Div(
                             'font': {'size': 28},
                         }
                     ],
+                    'paper_bgcolor': 'rgba(0, 0, 0, 0)',
+                    'plot_bgcolor': 'rgba(0, 0, 0, 0)',
                 },
             },
             config={'displayModeBar': False}
@@ -63,6 +66,7 @@ app.layout = html.Div(
 )
 
 
+@cached(43200)
 def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     res = requests.get(
         f'https://financialmodelingprep.com/api/v3/income-statement/{symbol}?period=quarter&limit=8&apikey={FMP_KEY}'
@@ -88,39 +92,10 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     Input('plot', 'n_clicks'),
     State('symbol', 'value'),
 )
-def plot_sankey(n_clicks, symbol):
+def plot_sankey(n_clicks: int, symbol: str):
     sankeys = [
         go.Sankey(
-            name=I[0],
-            node={
-                'label': [
-                    'Revenue',
-                    'Cost of Revenue',
-                    'Gross Profit',
-                    'Operating Expenses',
-                    'SG&A',
-                    'R&D',
-                    'Oerating Income',
-                ],
-                'x': [0.01, 0.33, 0.33, 0.67, 1.00, 1.00, 0.67],
-                'y': [0.55, 0.90, 0.20, 0.47, 0.67, 0.27, 0.01],
-                'pad': 32,
-                'color': [
-                    '#00cf9d',
-                    '#ff3062',
-                    '#00cf9d',
-                    '#ff3062',
-                    '#ff3062',
-                    '#ff3062',
-                    '#00cf9d',
-                ],
-                'line': {'width': 0},
-                'hoverinfo': 'none',
-            },
             link={
-                'source': [0, 0, 2, 3, 3, 2],
-                'target': [1, 2, 3, 4, 5, 6],
-                'value': [e // 1e6 for e in I[1]],
                 'color': [
                     '#f289a2',
                     '#1de6b5',
@@ -130,87 +105,87 @@ def plot_sankey(n_clicks, symbol):
                     '#1de6b5',
                 ],
                 'hovertemplate': '%{target.label}: %{value}<extra></extra>',
-                'hoverlabel': {'bordercolor': 'white'},
+                'source': [0, 0, 2, 3, 3, 2],
+                'target': [1, 2, 3, 4, 5, 6],
+                'value': [max(e, 1) / 1e6 for e in v],
             },
-            arrangement='fixed',
-            valueformat='$,',
+            name=k,
+            node={
+                'color': [
+                    '#00cf9d',
+                    '#ff3062',
+                    '#00cf9d',
+                    '#ff3062',
+                    '#ff3062',
+                    '#ff3062',
+                    '#00cf9d',
+                ],
+                'hoverinfo': 'none',
+                'label': [
+                    'Revenue',
+                    'Cost of Revenue',
+                    'Gross Profit',
+                    'Operating Expenses',
+                    'SG&A',
+                    'R&D',
+                    'Oerating Income',
+                ],
+                'line': {'width': 0},
+                'pad': 32,
+                'x': [0.01, 0.33, 0.33, 0.67, 1.00, 1.00, 0.67],
+                'y': [0.61, 0.94, 0.27, 0.53, 0.75, 0.32, 0.01],
+            },
+            valueformat=',.0f',
             valuesuffix='M',
         )
-        for I in get_incomes(symbol)
+        for k, v in get_incomes(symbol)
     ]
-    fig = go.Figure(
-        data=sankeys[0],
-        frames=[go.Frame(data=sankey, name=str(k)) for k, sankey in enumerate(sankeys)],
-        layout=go.Layout(
-            updatemenus=[
-                dict(
-                    type="buttons",
-                    buttons=[
+    return go.Figure(
+        sankeys[0],
+        go.Layout(
+            sliders=[
+                {
+                    'currentvalue': {'visible': False},
+                    'len': 0.9,
+                    'steps': [
                         {
-                            'label': '⏵',
+                            'args': [[sankey.name], {'mode': 'immediate'}],
+                            'label': sankey.name,
                             'method': 'animate',
+                        }
+                        for sankey in sankeys
+                    ],
+                    'x': 0.1,
+                    'y': -0.25,
+                }
+            ],
+            updatemenus=[
+                {
+                    'buttons': [
+                        {
                             'args': [
                                 None,
-                                {
-                                    'frame': {'duration': 1000, 'redraw': True},
-                                    'mode': 'immediate',
-                                },
+                                {'frame': {'duration': 1000}, 'fromcurrent': True},
                             ],
+                            'label': '⏵',
+                            'method': 'animate',
                         },
                         {
-                            "args": [
-                                [None],
-                                {
-                                    "frame": {"duration": 0, "redraw": False},
-                                    "mode": "immediate",
-                                },
-                            ],
-                            "label": "⏸",
-                            "method": "animate",
+                            'args': [[None], {'mode': 'immediate'}],
+                            'label': '⏸',
+                            'method': 'animate',
                         },
                     ],
-                    y=0,
-                    x=0.07,
-                    pad=dict(b=10, t=67),
-                    direction='right',
-                )
+                    'direction': 'right',
+                    'type': 'buttons',
+                    'x': 0.08,
+                    'y': -0.285,
+                }
             ],
-            sliders=[
-                dict(
-                    active=0,
-                    currentvalue=dict(
-                        font=dict(size=12),
-                        visible=True,
-                        xanchor="right",
-                    ),
-                    transition=dict(duration=300),
-                    pad=dict(b=10, t=50),
-                    len=0.9,
-                    x=0.1,
-                    y=0,
-                    steps=[
-                        dict(
-                            label=sankeys[i].name,
-                            method="animate",
-                            args=[
-                                [str(i)],
-                                {
-                                    "frame": {"duration": 1000, "redraw": True},
-                                    "mode": "immediate",
-                                    "transition": {"duration": 300},
-                                },
-                            ],
-                        )
-                        for i in range(len(sankeys))
-                    ],
-                )
-            ],
+            paper_bgcolor='rgba(0, 0, 0, 0)',
         ),
+        [go.Frame(data=sankey, name=sankey.name) for sankey in sankeys],
     )
-
-    fig.update_layout(plot_bgcolor='rgba(0, 0, 0, 0)', paper_bgcolor='rgba(0, 0, 0, 0)')
-
-    return fig
 
 
 if __name__ == '__main__':
