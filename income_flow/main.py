@@ -9,59 +9,50 @@ from general_cache import cached
 
 dotenv.load_dotenv()
 
-
 FMP_KEY = os.getenv('FMP_KEY')
 
-
 app = Dash(__name__, external_stylesheets=[dbc.themes.MORPH])
+server = app.server
 
 app.layout = html.Div(
     [
         html.Div(
             [
                 dbc.Input(
-                    id='symbol',  # Assigning an ID to the input
-                    value='AAPL',
-                    style={
+                    'symbol',
+                    {
                         'margin-right': '64px',
                         'text-align': 'center',
-                        'width': '128px',
+                        'width': '170px',
                     },
+                    placeholder='TSLA, 2330.TW',
+                    value='TSLA',
                 ),
-                dbc.Button('Plot', id='plot'),  # Assigning an ID to the button
+                dbc.Button('Plot', 'plot'),
             ],
-            style={'display': 'flex', 'margin-bottom': '32px'},
+            style={
+                'display': 'flex',
+                'margin-top': '64px',
+            },
         ),
         dcc.Graph(
-            id='sankey',
-            style={'width': '900px', 'height': '600px', 'margin-bottom': '64px'},
+            'sankey',
+            config={'displayModeBar': False},
             figure={
-                'data': [],
-                'layout': {
-                    'xaxis': {'visible': False},
-                    'yaxis': {'visible': False},
-                    'annotations': [
-                        {
-                            'text': 'Loading...',
-                            'xref': 'paper',
-                            'yref': 'paper',
-                            'showarrow': False,
-                            'font': {'size': 28},
-                        }
-                    ],
-                    'paper_bgcolor': 'rgba(0, 0, 0, 0)',
-                    'plot_bgcolor': 'rgba(0, 0, 0, 0)',
-                },
+                'data': [go.Sankey()],
+                'layout': {'paper_bgcolor': 'rgba(0, 0, 0, 0)'},
             },
-            config={'displayModeBar': False}
-            # loading_state={'is_loading': True},
-        ),  # Assigning an ID to the chart
+            style={
+                'height': '600px',
+                'margin-top': '32px',
+                'width': '900px',
+            },
+        ),
     ],
     style={
         'align-items': 'center',
         'display': 'flex',
         'flex-direction': 'column',
-        'margin': '64px',
     },
 )
 
@@ -92,7 +83,7 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     Input('plot', 'n_clicks'),
     State('symbol', 'value'),
 )
-def plot_sankey(n_clicks: int, symbol: str):
+def plot(n_clicks: int, symbol: str):
     sankeys = [
         go.Sankey(
             link={
@@ -107,9 +98,9 @@ def plot_sankey(n_clicks: int, symbol: str):
                 'hovertemplate': '%{target.label}: %{value}<extra></extra>',
                 'source': [0, 0, 2, 3, 3, 2],
                 'target': [1, 2, 3, 4, 5, 6],
-                'value': [max(e, 1) / 1e6 for e in v],
+                'value': [max(e, 1) / 1e6 for e in data],
             },
-            name=k,
+            name=name,
             node={
                 'color': [
                     '#00cf9d',
@@ -138,7 +129,7 @@ def plot_sankey(n_clicks: int, symbol: str):
             valueformat=',.0f',
             valuesuffix='M',
         )
-        for k, v in get_incomes(symbol)
+        for name, data in get_incomes(symbol)
     ]
     return go.Figure(
         sankeys[0],

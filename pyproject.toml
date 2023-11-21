@@ -10,6 +10,7 @@ python = "^3.11"
 dash = "^2.14.1"
 dash-bootstrap-components = "^1.5.0"
 general-cache = "^0.1.1"
+gunicorn = "^21.2.0"
 python-dotenv = "^1.0.0"
 requests = "^2.31.0"
 
