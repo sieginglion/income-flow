@@ -71,7 +71,8 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
                 e['operatingExpenses'],
                 e['sellingGeneralAndAdministrativeExpenses'],
                 e['researchAndDevelopmentExpenses'],
-                e['operatingIncome'],
+                # e['operatingIncome'],
+                e['grossProfit'] - e['operatingExpenses'],
             ),
         )
         for e in reversed(res.json())
