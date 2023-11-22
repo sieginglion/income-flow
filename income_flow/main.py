@@ -23,9 +23,9 @@ app.layout = html.Div(
                     {
                         'margin-right': '64px',
                         'text-align': 'center',
-                        'width': '170px',
+                        'width': '140px',
                     },
-                    placeholder='TSLA, 2330.TW',
+                    placeholder='TSLA, 2330',
                     value='TSLA',
                 ),
                 dbc.Button('Plot', 'plot'),
@@ -48,6 +48,7 @@ app.layout = html.Div(
                 'width': '900px',
             },
         ),
+        dcc.ConfirmDialog('alert', 'Not Supported', displayed=False),
     ],
     style={
         'align-items': 'center',
@@ -59,32 +60,47 @@ app.layout = html.Div(
 
 @cached(43200)
 def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
-    res = requests.get(
-        f'https://financialmodelingprep.com/api/v3/income-statement/{symbol}?period=quarter&limit=8&apikey={FMP_KEY}'
-    )
-    return [
-        (
-            e['calendarYear'][-2:] + e['period'],
-            (
-                e['costOfRevenue'],
-                e['grossProfit'],
-                e['operatingExpenses'],
-                e['sellingGeneralAndAdministrativeExpenses'],
-                e['researchAndDevelopmentExpenses'],
-                # e['operatingIncome'],
-                e['grossProfit'] - e['operatingExpenses'],
-            ),
-        )
-        for e in reversed(res.json())
-    ]
+    data = requests.get(
+        f'https://statementdog.com/api/v2/fundamentals/{symbol}/2018/2023/cf?qbu=true&qf=analysis',
+        headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        },
+    ).json()
+    q = data['quarterly']
+    T = [_[1][2:4] + 'Q' + _[1][4] for _ in data['common']['TimeFiscalQ']['data'][-8:]]
+    R = [int(_[1]) for _ in q['Revenue']['data'][-8:]]
+    GP = [int(_[1]) for _ in q['GrossProfit']['data'][-8:]]
+    CoR = [a - b for a, b in zip(R, GP)]
+    OE = [int(_[1]) for _ in q['OperatingExpenses']['data'][-8:]]
+    try:
+        SGnA = [int(_[1]) for _ in q['SellingAndAdministrativeExpenses']['data'][-8:]]
+    except (KeyError, ValueError):
+        SGnA = [
+            int(a[1]) + int(b[1])
+            for a, b in zip(
+                q['SellingExpenses']['data'][-8:],
+                q['AdministrativeExpenses']['data'][-8:],
+            )
+        ]
+    RnD = [int(_[1]) for _ in q['ResearchAndDevelopmentExpenses']['data'][-8:]]
+    OI = [int(_[1]) for _ in q['OperatingIncome']['data'][-8:]]
+    return [(t, tuple(_)) for t, *_ in zip(T, CoR, GP, OE, SGnA, RnD, OI)]
 
 
 @callback(
     Output('sankey', 'figure'),
+    Output('alert', 'displayed'),
     Input('plot', 'n_clicks'),
     State('symbol', 'value'),
 )
 def plot(n_clicks: int, symbol: str):
+    try:
+        incomes = get_incomes(symbol)
+    except (KeyError, ValueError):
+        return (
+            go.Figure(go.Sankey(), layout=go.Layout(paper_bgcolor='rgba(0, 0, 0, 0)')),
+            True,
+        )
     sankeys = [
         go.Sankey(
             link={
@@ -99,7 +115,7 @@ def plot(n_clicks: int, symbol: str):
                 'hovertemplate': '%{target.label}: %{value}<extra></extra>',
                 'source': [0, 0, 2, 3, 3, 2],
                 'target': [1, 2, 3, 4, 5, 6],
-                'value': [max(e, 1) / 1e6 for e in data],
+                'value': [max(e, 1) / 1e3 for e in data],
             },
             name=name,
             node={
@@ -130,53 +146,56 @@ def plot(n_clicks: int, symbol: str):
             valueformat=',.0f',
             valuesuffix='M',
         )
-        for name, data in get_incomes(symbol)
+        for name, data in incomes
     ]
-    return go.Figure(
-        sankeys[0],
-        go.Layout(
-            sliders=[
-                {
-                    'currentvalue': {'visible': False},
-                    'len': 0.9,
-                    'steps': [
-                        {
-                            'args': [[sankey.name], {'mode': 'immediate'}],
-                            'label': sankey.name,
-                            'method': 'animate',
-                        }
-                        for sankey in sankeys
-                    ],
-                    'x': 0.1,
-                    'y': -0.25,
-                }
-            ],
-            updatemenus=[
-                {
-                    'buttons': [
-                        {
-                            'args': [
-                                None,
-                                {'frame': {'duration': 1000}, 'fromcurrent': True},
-                            ],
-                            'label': '⏵',
-                            'method': 'animate',
-                        },
-                        {
-                            'args': [[None], {'mode': 'immediate'}],
-                            'label': '⏸',
-                            'method': 'animate',
-                        },
-                    ],
-                    'direction': 'right',
-                    'type': 'buttons',
-                    'x': 0.08,
-                    'y': -0.285,
-                }
-            ],
-            paper_bgcolor='rgba(0, 0, 0, 0)',
+    return (
+        go.Figure(
+            sankeys[0],
+            go.Layout(
+                sliders=[
+                    {
+                        'currentvalue': {'visible': False},
+                        'len': 0.9,
+                        'steps': [
+                            {
+                                'args': [[sankey.name], {'mode': 'immediate'}],
+                                'label': sankey.name,
+                                'method': 'animate',
+                            }
+                            for sankey in sankeys
+                        ],
+                        'x': 0.1,
+                        'y': -0.25,
+                    }
+                ],
+                updatemenus=[
+                    {
+                        'buttons': [
+                            {
+                                'args': [
+                                    None,
+                                    {'frame': {'duration': 1000}, 'fromcurrent': True},
+                                ],
+                                'label': '⏵',
+                                'method': 'animate',
+                            },
+                            {
+                                'args': [[None], {'mode': 'immediate'}],
+                                'label': '⏸',
+                                'method': 'animate',
+                            },
+                        ],
+                        'direction': 'right',
+                        'type': 'buttons',
+                        'x': 0.08,
+                        'y': -0.285,
+                    }
+                ],
+                paper_bgcolor='rgba(0, 0, 0, 0)',
+            ),
+            [go.Frame(data=sankey, name=sankey.name) for sankey in sankeys],
         ),
-        [go.Frame(data=sankey, name=sankey.name) for sankey in sankeys],
+        False,
     )
 
 
