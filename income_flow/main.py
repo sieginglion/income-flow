@@ -111,6 +111,7 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     State('symbol', 'value'),
 )
 def plot(n_clicks: int, symbol: str):
+    incomes = get_incomes(symbol)
     try:
         incomes = get_incomes(symbol)
     except (KeyError, ValueError):
