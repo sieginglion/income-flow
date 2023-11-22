@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 
 import dash_bootstrap_components as dbc
 import dotenv
@@ -66,12 +68,21 @@ def get_from_sec(symbol: str, tag: str, end: str) -> list[int]:
     cik = requests.get(
         f'https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_KEY}'
     ).json()[0]['cik']
-    res = requests.get(
-        f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{tag}.json',
-        headers=HEADERS,
-    )
+    # res = requests.get(
+    #     f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{tag}.json',
+    #     headers=HEADERS,
+    # )
+    # values: list[int] = []
+    # for e in res.json()['units']['USD']:
+    curl_command = f"""
+    curl 'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{tag}.json' \
+    -H 'accept-language: en-US,en;q=0.6' \
+    -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36' \
+    --compressed
+    """
+    result = subprocess.run(curl_command, shell=True, capture_output=True, text=True)
     values: list[int] = []
-    for e in res.json()['units']['USD']:
+    for e in json.loads(result.stdout)['units']['USD']:
         if e['end'] <= end and 'frame' in e:
             values.append(e['val'] - (sum(values[-3:]) if e['fp'] == 'FY' else 0))
     return values[-8:]

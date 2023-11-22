@@ -6,7 +6,7 @@ authors = ["sieginglion <sieginglion@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.10"
 dash = "^2.14.1"
 dash-bootstrap-components = "^1.5.0"
 general-cache = "^0.1.1"
