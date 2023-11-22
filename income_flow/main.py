@@ -71,7 +71,26 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     R = [int(_[1]) for _ in q['Revenue']['data'][-8:]]
     GP = [int(_[1]) for _ in q['GrossProfit']['data'][-8:]]
     CoR = [a - b for a, b in zip(R, GP)]
-    OE = [int(_[1]) for _ in q['OperatingExpenses']['data'][-8:]]
+    if not symbol[0].isdigit():
+        cik = requests.get(
+            f'https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_KEY}'
+        ).json()[0]['cik']
+        OE_ = requests.get(
+            f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/OperatingExpenses.json',
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            },
+        ).json()['units']['USD']
+        OE = []
+        for oe in OE_:
+            if 'frame' in oe:
+                if 'Q' in oe['frame']:
+                    OE.append(oe['val'] / 1e3)
+                else:
+                    OE.append(oe['val'] / 1e3 - sum(OE[-3:]))
+        OE = OE[-8:]
+    else:
+        OE = [int(_[1]) for _ in q['OperatingExpenses']['data'][-8:]]
     try:
         SGnA = [int(_[1]) for _ in q['SellingAndAdministrativeExpenses']['data'][-8:]]
     except (KeyError, ValueError):
@@ -83,24 +102,7 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
             )
         ]
     RnD = [int(_[1]) for _ in q['ResearchAndDevelopmentExpenses']['data'][-8:]]
-    OI = [int(_[1]) for _ in q['OperatingIncome']['data'][-8:]]
-    if not symbol[0].isdigit():
-        for i, (a, b, c) in enumerate(zip(OE, SGnA, RnD)):
-            if b + c > a:
-                cik = requests.get(
-                    f'https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_KEY}'
-                ).json()[0]['cik']
-                OEs = requests.get(
-                    f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/OperatingExpenses.json',
-                    headers={
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-                    },
-                ).json()['units']['USD']
-                for oe in OEs:
-                    if 'frame' in oe and T[i] in oe['frame']:
-                        OE[i] = oe['val'] / 1e3
-                        OI[i] = GP[i] - OE[i]
-                        break
+    OI = [a - b for a, b in zip(GP, OE)]
     return [(t, tuple(_)) for t, *_ in zip(T, CoR, GP, OE, SGnA, RnD, OI)]
 
 
@@ -111,10 +113,7 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     State('symbol', 'value'),
 )
 def plot(n_clicks: int, symbol: str):
-    try:
-        incomes = get_incomes(symbol)
-    except:
-        raise ValueError
+    incomes = get_incomes(symbol)
     try:
         incomes = get_incomes(symbol)
     except (KeyError, ValueError):
