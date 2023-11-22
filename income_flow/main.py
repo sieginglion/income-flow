@@ -11,6 +11,10 @@ dotenv.load_dotenv()
 
 FMP_KEY = os.getenv('FMP_KEY')
 
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+}
+
 app = Dash(__name__, external_stylesheets=[dbc.themes.MORPH])
 server = app.server
 
@@ -58,52 +62,56 @@ app.layout = html.Div(
 )
 
 
+def get_from_sec(symbol: str, tag: str, end: str) -> list[int]:
+    cik = requests.get(
+        f'https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_KEY}'
+    ).json()[0]['cik']
+    res = requests.get(
+        f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{tag}.json',
+        headers=HEADERS,
+    )
+    values: list[int] = []
+    for e in res.json()['units']['USD']:
+        if e['end'] <= end and 'frame' in e:
+            values.append(e['val'] - (sum(values[-3:]) if e['fp'] == 'FY' else 0))
+    return values[-8:]
+
+
 @cached(43200)
 def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     data = requests.get(
         f'https://statementdog.com/api/v2/fundamentals/{symbol}/2018/2023/cf?qbu=true&qf=analysis',
-        headers={
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-        },
+        headers=HEADERS,
     ).json()
-    q = data['quarterly']
-    T = [_[1][2:4] + 'Q' + _[1][4] for _ in data['common']['TimeFiscalQ']['data'][-8:]]
-    R = [int(_[1]) for _ in q['Revenue']['data'][-8:]]
-    GP = [int(_[1]) for _ in q['GrossProfit']['data'][-8:]]
+    Q = [e[2:4] + 'Q' + e[4] for i, e in data['common']['TimeFiscalQ']['data'][-8:]]
+
+    def extract(tag: str) -> list[int]:
+        return [int(e[1]) * 1000 for e in data['quarterly'][tag]['data'][-8:]]
+
+    R = extract('Revenue')
+    GP = extract('GrossProfit')
     CoR = [a - b for a, b in zip(R, GP)]
-    if not symbol[0].isdigit():
-        cik = requests.get(
-            f'https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_KEY}'
-        ).json()[0]['cik']
-        OE_ = requests.get(
-            f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/OperatingExpenses.json',
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            },
-        ).json()['units']['USD']
-        OE = []
-        for oe in OE_:
-            if 'frame' in oe:
-                if 'Q' in oe['frame']:
-                    OE.append(oe['val'] / 1e3)
-                else:
-                    OE.append(oe['val'] / 1e3 - sum(OE[-3:]))
-        OE = OE[-8:]
-    else:
-        OE = [int(_[1]) for _ in q['OperatingExpenses']['data'][-8:]]
+    OI = (
+        get_from_sec(
+            symbol,
+            'OperatingIncomeLoss',
+            data['common']['TimeCalendarQ']['data'][-1][1],
+        )
+        if symbol[0].isalpha()
+        else extract('OperatingIncome')
+    )
+    OE = [a - b for a, b in zip(GP, OI)]
     try:
-        SGnA = [int(_[1]) for _ in q['SellingAndAdministrativeExpenses']['data'][-8:]]
+        SGnA = extract('SellingAndAdministrativeExpenses')
     except (KeyError, ValueError):
         SGnA = [
-            int(a[1]) + int(b[1])
+            a + b
             for a, b in zip(
-                q['SellingExpenses']['data'][-8:],
-                q['AdministrativeExpenses']['data'][-8:],
+                extract('SellingExpenses'), extract('AdministrativeExpenses')
             )
         ]
-    RnD = [int(_[1]) for _ in q['ResearchAndDevelopmentExpenses']['data'][-8:]]
-    OI = [a - b for a, b in zip(GP, OE)]
-    return [(t, tuple(_)) for t, *_ in zip(T, CoR, GP, OE, SGnA, RnD, OI)]
+    RnD = extract('ResearchAndDevelopmentExpenses')
+    return [(q, tuple(_)) for q, *_ in zip(Q, CoR, GP, OE, SGnA, RnD, OI)]
 
 
 @callback(
@@ -113,7 +121,6 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     State('symbol', 'value'),
 )
 def plot(n_clicks: int, symbol: str):
-    incomes = get_incomes(symbol)
     try:
         incomes = get_incomes(symbol)
     except (KeyError, ValueError):
@@ -135,7 +142,7 @@ def plot(n_clicks: int, symbol: str):
                 'hovertemplate': '%{target.label}: %{value}<extra></extra>',
                 'source': [0, 0, 2, 3, 3, 2],
                 'target': [1, 2, 3, 4, 5, 6],
-                'value': [max(e, 1) / 1e3 for e in data],
+                'value': [max(e, 1) / 1e6 for e in data],
             },
             name=name,
             node={
