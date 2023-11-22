@@ -102,7 +102,11 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
         return [int(e[1]) * 1000 for e in data['quarterly'][tag]['data'][-8:]]
 
     R = extract('Revenue')
-    GP = extract('GrossProfit')
+    GP = (
+        get_from_sec(symbol, 'GrossProfit', Q[-1][-2:])
+        if symbol[0].isalpha()
+        else extract('GrossProfit')
+    )
     CoR = [a - b for a, b in zip(R, GP)]
     OI = (
         get_from_sec(symbol, 'OperatingIncomeLoss', Q[-1][-2:])
@@ -119,7 +123,10 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
                 extract('SellingExpenses'), extract('AdministrativeExpenses')
             )
         ]
-    RnD = extract('ResearchAndDevelopmentExpenses')
+    try:
+        RnD = extract('ResearchAndDevelopmentExpenses')
+    except (KeyError, ValueError):
+        RnD = [0] * 8
     return [(q, tuple(_)) for q, *_ in zip(Q, CoR, GP, OE, SGnA, RnD, OI)]
 
 
@@ -148,6 +155,7 @@ def plot(n_clicks: int, symbol: str):
                     '#f289a2',
                     '#1de6b5',
                 ],
+                'hoverlabel': {'font': {'size': 14}},
                 'hovertemplate': '%{target.label}: %{value}<extra></extra>',
                 'source': [0, 0, 2, 3, 3, 2],
                 'target': [1, 2, 3, 4, 5, 6],
@@ -172,13 +180,14 @@ def plot(n_clicks: int, symbol: str):
                     'Operating Expenses',
                     'SG&A',
                     'R&D',
-                    'Oerating Income',
+                    'Operating Income',
                 ],
                 'line': {'width': 0},
                 'pad': 32,
                 'x': [0.01, 0.33, 0.33, 0.67, 1.00, 1.00, 0.67],
                 'y': [0.61, 0.94, 0.27, 0.53, 0.75, 0.32, 0.01],
             },
+            textfont={'size': 14},
             valueformat=',.0f',
             valuesuffix='M',
         )
