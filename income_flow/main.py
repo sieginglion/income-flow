@@ -83,8 +83,10 @@ def get_from_sec(symbol: str, tag: str, end: str) -> list[int]:
     result = subprocess.run(curl_command, shell=True, capture_output=True, text=True)
     values: list[int] = []
     for e in json.loads(result.stdout)['units']['USD']:
-        if e['end'] <= end and 'frame' in e:
+        if 'frame' in e:
             values.append(e['val'] - (sum(values[-3:]) if e['fp'] == 'FY' else 0))
+    if ('Q4' if e['fp'] == 'FY' else e['fp']) != end:
+        values.pop()
     return values[-8:]
 
 
@@ -103,11 +105,7 @@ def get_incomes(symbol: str) -> list[tuple[str, tuple[int, ...]]]:
     GP = extract('GrossProfit')
     CoR = [a - b for a, b in zip(R, GP)]
     OI = (
-        get_from_sec(
-            symbol,
-            'OperatingIncomeLoss',
-            data['common']['TimeCalendarQ']['data'][-1][1],
-        )
+        get_from_sec(symbol, 'OperatingIncomeLoss', Q[-1][-2:])
         if symbol[0].isalpha()
         else extract('OperatingIncome')
     )
