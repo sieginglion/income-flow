@@ -1,34 +1,27 @@
+import datetime
 import json
 import os
 import subprocess
-from datetime import date
 from typing import NamedTuple
 
 import arrow
 import dash_bootstrap_components as dbc
 import dotenv
 import pandas as pd
-import plotly.graph_objects as go
-import requests
+import requests as rq
 from dash import Dash, Input, Output, State, callback, dcc, html
 from general_cache import cached
+from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 
 dotenv.load_dotenv()
 
 FMP_KEY = os.environ['FMP_KEY']
-
+MAX_Q = 4
+MAX_D = MAX_Q * 91
 USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
 
-TRANSPARENT = 'rgba(0, 0, 0, 0)'
-DARK_GREEN = '#acd58e'
-DARK_RED = '#d58eac'
-LIGHT_BLUE = '#8eacd5'
-LIGHT_GREEN = '#c8e3b4'
-LIGHT_RED = '#e3b4c8'
-BAND_COLORS = ['#0077b6', '#0096C7', '#00b4d8', '#48CAE4', '#90E0EF', '#ADE8F4']
-
-
+MARGIN = '50px'
 FONT_COLOR = '#7b8ab8'
 FONT = dict(
     color=FONT_COLOR,
@@ -36,62 +29,57 @@ FONT = dict(
     size=14,
 )
 
-MARGIN = '50px'
-
-MAX_Q = 8
-MAX_D = MAX_Q * 91
-
+BAND_COLORS = ['#0077b6', '#0096C7', '#00b4d8', '#48CAE4', '#90E0EF', '#ADE8F4']
+BLUE = '#8eacd5'
+DARK_GREEN = '#acd58e'
+DARK_RED = '#d58eac'
+LIGHT_GREEN = '#c8e3b4'
+LIGHT_RED = '#e3b4c8'
+TRANSPARENT = 'rgba(0, 0, 0, 0)'
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.MORPH])
-server = app.server
-
 app.layout = html.Div(
     [
         html.Div(
             [
                 dbc.Input(
-                    'symbol',
-                    {
-                        'margin-right': MARGIN,
-                        'text-align': 'center',
-                        'width': '140px',
-                    },
-                    placeholder='NVDA, 2330',
-                    value='TSLA',
+                    'input',
+                    dict(textAlign='center', width='140px'),
+                    placeholder='TSLA, 2330',
+                    value='2330',
                 ),
-                dbc.Button('Plot', 'plot'),
+                dbc.Button('Plot', 'button', style=dict(marginLeft=MARGIN)),
             ],
-            style={
-                'display': 'flex',
-                'margin': MARGIN,
-            },
+            style=dict(display='flex', marginTop=MARGIN),
         ),
         dcc.Graph(
-            'sankey',
-            config={'displayModeBar': False},
-            figure={
-                'data': [go.Sankey()],
-                'layout': {'paper_bgcolor': TRANSPARENT},
-            },
-            style={
-                'height': '900px',
-                'width': '800px',
-                'border-radius': '50px',
-                'box-shadow': '5px 5px 10px rgba(55, 94, 148, 0.2), -5px -5px 10px rgba(255, 255, 255, 0.4)',
-                'margin-bottom': MARGIN,
-            },
+            'graph',
+            config=dict(displayModeBar=False),
+            figure=dict(data=[go.Sankey()], layout=dict(paper_bgcolor=TRANSPARENT)),
+            style=dict(
+                borderRadius='50px',
+                boxShadow='5px 5px 10px rgba(55, 94, 148, 0.2), -5px -5px 10px rgba(255, 255, 255, 0.4)',
+                height='880px',
+                marginTop=MARGIN,
+                width='800px',
+            ),
         ),
         dcc.ConfirmDialog('alert', 'Not Supported', displayed=False),
     ],
-    style={
-        'align-items': 'center',
-        'display': 'flex',
-        'flex-direction': 'column',
-    },
+    style=dict(
+        alignItems='center',
+        display='flex',
+        flexDirection='column',
+        paddingBottom=MARGIN,
+    ),
 )
 
 
-def get_item_from_sec(cik: str, tag: str, last_q: str):
+class NotSupported(Exception):
+    ...
+
+
+def get_item_from_sec(cik: str, tag: str, filing_dates: pd.Series):
     cmd = f'''
     curl 'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{tag}.json' \
     -H 'accept-language: en-US,en;q=0.9' \
@@ -99,18 +87,39 @@ def get_item_from_sec(cik: str, tag: str, last_q: str):
     -H 'user-agent: {USER_AGENT}' \
     --compressed
     '''
-    res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    values: list[int] = []
-    for e in json.loads(res.stdout)['units']['USD']:
-        if 'frame' in e:
-            values.append(e['val'] - (sum(values[-3:]) if e['fp'] == 'FY' else 0))
-    if ('Q4' if e['fp'] == 'FY' else e['fp']) != last_q:
-        values.pop()
-    return pd.Series(values[-(MAX_Q + 1) :])
+    res = subprocess.run(cmd, capture_output=True, shell=True, text=True)
+    try:
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        raise NotSupported
+    df = pd.DataFrame(data['units']['USD'])
+    df = df[df['form'].isin(['10-Q', '10-K']) & df['frame'].notna()].reset_index(
+        drop=True
+    )
+    for i in df[df['form'] == '10-K'].index:
+        if ((q := df.loc[i - 3 : i - 1])['form'] == '10-Q').sum() == 3:
+            df.at[i, 'val'] -= q['val'].sum()
+        else:
+            df = df.drop(i)
+
+    def find_filing_date(end_date: datetime.date):
+        result = filing_dates[
+            (end_date < filing_dates)
+            & (filing_dates < end_date + pd.Timedelta(days=91))
+        ]
+        return result.iloc[0] if len(result) else pd.NA
+
+    df['filing_date'] = pd.to_datetime(df['end']).dt.date.map(find_filing_date)
+    df = df.set_index('filing_date')
+    try:
+        s = df.loc[filing_dates, 'val']
+    except KeyError:
+        raise NotSupported
+    return s.reset_index(drop=True)
 
 
 class Income(NamedTuple):
-    d: date
+    d: datetime.date
     r: int
     cor: int
     gp: int
@@ -122,30 +131,32 @@ class Income(NamedTuple):
 
 
 def get_incomes_from_fmp(symbol: str):
-    data = requests.get(
+    data = rq.get(
         f'https://financialmodelingprep.com/api/v3/income-statement/{symbol}?period=quarter&limit={MAX_Q + 4}&apikey={FMP_KEY}'
     ).json()
-    assert len(data)
+    if len(data) != MAX_Q + 4:
+        raise NotSupported
     df = pd.DataFrame(data[::-1])
-    eps = df['eps'].rolling(4).sum().dropna()
-    df = df.tail(MAX_Q + 1).reset_index(drop=True)
+    eps = df['eps'].rolling(4).sum().loc[3:]
+    df = df.loc[3:].reset_index(drop=True)
     d = pd.to_datetime(df['fillingDate']).dt.date
     r = df['revenue']
-    cik, last_q = df.iloc[-1][['cik', 'period']]
-    gp = get_item_from_sec(cik, 'GrossProfit', last_q)
-    oi = get_item_from_sec(cik, 'OperatingIncomeLoss', last_q)
+    cik = df.loc[0, 'cik']
+    gp = get_item_from_sec(cik, 'GrossProfit', d)
+    oi = get_item_from_sec(cik, 'OperatingIncomeLoss', d)
     rnd = df['researchAndDevelopmentExpenses']
     sgna = df['sellingGeneralAndAdministrativeExpenses']
     return [Income(*_) for _ in zip(d, r, r - gp, gp, gp - oi, oi, rnd, sgna, eps)]
 
 
-def get_incomes_from_sd(symbol: str):
+def get_incomes_from_dog(symbol: str):
     end = arrow.now('Asia/Taipei')
-    data = requests.get(
+    data = rq.get(
         f'https://statementdog.com/api/v2/fundamentals/{symbol}/{end.shift(days=-(MAX_Q + 4) * 91).year}/{end.year}',
         headers={'User-Agent': USER_AGENT},
     ).json()
-    assert len(data['common']['TimeCalendarQ']['data'])
+    if len(data['common']['TimeCalendarQ']['data']) < MAX_Q + 4:
+        raise NotSupported
     d = pd.to_datetime(
         [e for i, e in data['common']['TimeCalendarQ']['data'][-(MAX_Q + 1) :]]
     ).map(lambda x: x.date())
@@ -234,7 +245,7 @@ def create_sankey_frames(incomes: list[Income]):
 
 def get_prices(symbol: str):
     market = 'u' if symbol[0].isalpha() else 't'
-    prices = requests.get(
+    prices = rq.get(
         f'http://52.198.155.160:8080/prices?market={market}&symbol={symbol}&n={MAX_D}'
     ).json()
     now = arrow.now('Etc/GMT+5' if market == 'u' else 'Asia/Taipei')
@@ -248,7 +259,7 @@ def get_prices(symbol: str):
 def calc_bands(incomes: list[Income], prices: pd.Series):
     dates = [e.date() for e in pd.date_range(incomes[0].d, prices.index[-1])]
     eps = (
-        pd.Series({income.d: income.eps for income in incomes}, index=dates)
+        pd.Series({income.d: income.eps for income in incomes}, dates)
         .ffill()
         .tail(MAX_D)
     )
@@ -273,7 +284,7 @@ def create_price_frames_and_bands(symbol, incomes):
                 align='right', bgcolor='white', bordercolor='white', font=FONT
             ),
             hovertemplate='%{x|%y-%m-%d}<br>%{y:.2f}<extra></extra>',
-            line=dict(color=LIGHT_BLUE, shape='spline', width=4),
+            line=dict(color=BLUE, shape='spline', width=4),
             mode='lines',
             x=prices.index,
             y=prices.loc[: d + pd.Timedelta(days=1)],
@@ -297,19 +308,19 @@ def create_price_frames_and_bands(symbol, incomes):
 
 
 @callback(
-    Output('sankey', 'figure'),
+    Output('graph', 'figure'),
     Output('alert', 'displayed'),
-    State('symbol', 'value'),
-    Input('plot', 'n_clicks'),
+    State('input', 'value'),
+    Input('button', 'n_clicks'),
 )
-def plot(symbol: str, n_clicks: int):
+def main(symbol: str, n_clicks: int):
     try:
         incomes = (
             get_incomes_from_fmp(symbol)
             if symbol[0].isalpha()
-            else get_incomes_from_sd(symbol)
+            else get_incomes_from_dog(symbol)
         )
-    except (AssertionError, KeyError, ValueError):
+    except NotSupported:
         return go.Figure(go.Sankey(), go.Layout(paper_bgcolor=TRANSPARENT)), True
     s_frames = create_sankey_frames(incomes)
     p_frames, bands = create_price_frames_and_bands(symbol, incomes)
@@ -321,7 +332,7 @@ def plot(symbol: str, n_clicks: int):
     for band in bands:
         fig.add_trace(band, 2, 1)
         fig.add_annotation(
-            showarrow=False, text=band.name + 'X', x=band.x[-1], y=band.y[-1]
+            showarrow=False, text=band.name + 'x', x=band.x[-1], y=band.y[-1]
         )
     fig.frames = [
         go.Frame(data=[s_frame, p_frame], name=s_frame.name)
@@ -337,8 +348,8 @@ def plot(symbol: str, n_clicks: int):
                 dict(
                     borderwidth=0,
                     currentvalue={'visible': False},
-                    len=0.9,
-                    pad={'b': 20},
+                    len=0.92,
+                    pad={'b': 40},
                     steps=[
                         dict(
                             args=[
@@ -351,7 +362,7 @@ def plot(symbol: str, n_clicks: int):
                         for s_frame in s_frames
                     ],
                     tickcolor=FONT_COLOR,
-                    x=0.1,
+                    x=0.12,
                 )
             ],
             updatemenus=[
@@ -363,7 +374,7 @@ def plot(symbol: str, n_clicks: int):
                             args=[
                                 None,
                                 dict(
-                                    frame={'duration': 1500},
+                                    frame={'duration': 2000},
                                     fromcurrent=True,
                                     transition={'duration': 0},
                                 ),
@@ -381,7 +392,7 @@ def plot(symbol: str, n_clicks: int):
                     font={'family': 'sans-serif'},
                     showactive=False,
                     type='buttons',
-                    x=0.07,
+                    x=0.09,
                     y=-0.02,
                 )
             ],
@@ -393,4 +404,4 @@ def plot(symbol: str, n_clicks: int):
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True)
