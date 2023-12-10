@@ -9,10 +9,11 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH=/root/.local/bin:${PATH}
 
 WORKDIR /stock-sense
-COPY --chown=nobody:nogroup . .
+COPY . .
 RUN poetry config virtualenvs.create false && \
     poetry install --only main && \
     rm -rf /root/.cache/pypoetry
 
+RUN chown -R nobody:nogroup /stock-sense
 USER nobody:nogroup
 CMD gunicorn -b 0.0.0.0:80 main:server
