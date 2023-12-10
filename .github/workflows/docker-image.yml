@@ -16,3 +16,5 @@ jobs:
     - uses: actions/checkout@v3
     - name: Build the Docker image
       run: docker build -t sieginglion/stock-sense .
+    - run: docker login -u sieginglion -p ${{ secrets.DOCKERHUB_PASSWORD }}
+    - run: docker push sieginglion/stock-sense
