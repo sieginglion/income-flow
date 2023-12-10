@@ -16,4 +16,4 @@ RUN poetry config virtualenvs.create false && \
 
 RUN chown -R nobody:nogroup /stock-sense
 USER nobody:nogroup
-CMD gunicorn -b 0.0.0.0:80 main:server
+CMD gunicorn -b 0.0.0.0:8080 main:server
