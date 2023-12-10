@@ -38,6 +38,8 @@ LIGHT_RED = '#e3b4c8'
 TRANSPARENT = 'rgba(0, 0, 0, 0)'
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.MORPH])
+server = app.server
+
 app.layout = html.Div(
     [
         html.Div(
@@ -46,7 +48,7 @@ app.layout = html.Div(
                     'input',
                     dict(textAlign='center', width='140px'),
                     placeholder='TSLA, 2330',
-                    value='2330',
+                    value='TSLA',
                 ),
                 dbc.Button('Plot', 'button', style=dict(marginLeft=MARGIN)),
             ],
