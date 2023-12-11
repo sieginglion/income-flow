@@ -164,17 +164,37 @@ def get_incomes_from_dog(symbol: str):
     ).map(lambda x: x.date())
 
     def extract(item):
-        return pd.Series(
-            [float(e) for i, e in data['quarterly'][item]['data'][-(MAX_Q + 1) :]]
-        )
+        try:
+            return pd.Series(
+                [float(e) for i, e in data['quarterly'][item]['data'][-(MAX_Q + 1) :]]
+            )
+        except (KeyError, ValueError):
+            raise NotSupported
 
     r = extract('Revenue') * 1000
     gp = extract('GrossProfit') * 1000
     oi = extract('OperatingIncome') * 1000
     rnd = extract('ResearchAndDevelopmentExpenses') * 1000
-    sgna = extract('SellingExpenses') + extract('AdministrativeExpenses') * 1000
+    try:
+        sgna = extract('SellingAndAdministrativeExpenses') * 1000
+    except NotSupported:
+        sgna = extract('SellingExpenses') + extract('AdministrativeExpenses') * 1000
     eps = extract('EPST4Q')
     return [Income(*_) for _ in zip(d, r, r - gp, gp, gp - oi, oi, rnd, sgna, eps)]
+
+
+@cached(43200)
+def get_incomes(symbol):
+    funcs = (
+        [get_incomes_from_fmp, get_incomes_from_dog]
+        if symbol[0].isalpha()
+        else [get_incomes_from_dog]
+    )
+    for func in funcs:
+        try:
+            return func(symbol)
+        except NotSupported:
+            continue
 
 
 def create_sankey_frames(incomes: list[Income]):
@@ -316,13 +336,7 @@ def create_price_frames_and_bands(symbol, incomes):
     Input('button', 'n_clicks'),
 )
 def main(symbol: str, n_clicks: int):
-    try:
-        incomes = (
-            get_incomes_from_fmp(symbol)
-            if symbol[0].isalpha()
-            else get_incomes_from_dog(symbol)
-        )
-    except NotSupported:
+    if not (incomes := get_incomes(symbol)):
         return go.Figure(go.Sankey(), go.Layout(paper_bgcolor=TRANSPARENT)), True
     s_frames = create_sankey_frames(incomes)
     p_frames, bands = create_price_frames_and_bands(symbol, incomes)
