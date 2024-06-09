@@ -2,19 +2,15 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
-    - name: Build the Docker image
-      run: docker build -t sieginglion/stock-sense .
-    - run: docker login -u sieginglion -p ${{ secrets.DOCKERHUB_PASSWORD }}
-    - run: docker push sieginglion/stock-sense
+      - uses: actions/checkout@v3
+      - run: docker build -t sieginglion/stock-sense .
+      - run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u sieginglion --password-stdin
+      - run: docker push sieginglion/stock-sense

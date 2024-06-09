@@ -17,7 +17,7 @@ from plotly.subplots import make_subplots
 dotenv.load_dotenv()
 
 FMP_KEY = os.environ['FMP_KEY']
-MAX_Q = 4
+MAX_Q = 8
 MAX_D = MAX_Q * 91
 USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
 
@@ -77,8 +77,7 @@ app.layout = html.Div(
 )
 
 
-class NotSupported(Exception):
-    ...
+class NotSupported(Exception): ...
 
 
 def get_item_from_sec(cik: str, tag: str, filing_dates: pd.Series):
@@ -159,9 +158,11 @@ def get_incomes_from_dog(symbol: str):
     ).json()
     if len(data['common']['TimeCalendarQ']['data']) < MAX_Q + 4:
         raise NotSupported
-    d = pd.to_datetime(
-        [e for i, e in data['common']['TimeCalendarQ']['data'][-(MAX_Q + 1) :]]
-    ).map(lambda x: x.date())
+    fmp_data = rq.get(
+        f'https://financialmodelingprep.com/api/v3/income-statement/{symbol}?period=quarter&limit={MAX_Q + 1}&apikey={FMP_KEY}'
+    ).json()
+    fmp_df = pd.DataFrame(fmp_data[::-1])
+    d = pd.to_datetime(fmp_df['fillingDate']).dt.date
 
     def extract(item):
         try:
@@ -183,7 +184,7 @@ def get_incomes_from_dog(symbol: str):
     return [Income(*_) for _ in zip(d, r, r - gp, gp, gp - oi, oi, rnd, sgna, eps)]
 
 
-@cached(43200)
+# @cached(43200)
 def get_incomes(symbol):
     funcs = (
         [get_incomes_from_fmp, get_incomes_from_dog]
@@ -309,7 +310,7 @@ def create_price_frames_and_bands(symbol, incomes):
             line=dict(color=BLUE, shape='spline', width=4),
             mode='lines',
             x=prices.index,
-            y=prices.loc[: d + pd.Timedelta(days=1)],
+            y=prices.loc[: d + pd.Timedelta(days=7)],
         )
         for d in dates
     ]
